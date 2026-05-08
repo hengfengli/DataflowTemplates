@@ -178,6 +178,19 @@ public class ExportPipelineIT extends SpannerTemplateITBase {
                   + "  ]"
                   + "}");
 
+  private static final Schema NO_PK_SCHEMA =
+      new Schema.Parser()
+          .parse(
+              "{\n"
+                  + "  \"type\": \"record\",\n"
+                  + "  \"name\": \"NoPkTable\",\n"
+                  + "  \"namespace\": \"com.google.cloud.teleport.spanner\",\n"
+                  + "  \"fields\": [\n"
+                  + "    { \"name\": \"Name\", \"type\": [\"null\", \"string\"], \"sqlType\": \"STRING(MAX)\" },\n"
+                  + "    { \"name\": \"rowid\", \"type\": \"long\", \"sqlType\": \"INT64\", \"identityColumn\":\"true\", \"hidden\":\"true\" }\n"
+                  + "  ]\n"
+                  + "}");
+
   private SpannerResourceManager spannerResourceManager;
 
   @After
@@ -219,7 +232,9 @@ public class ExportPipelineIT extends SpannerTemplateITBase {
     spannerResourceManager.executeDdlStatements(ddls);
 
     List<Mutation> expectedData = generateTableRows(String.format("%s_Singers", testName));
+    List<Mutation> expectedNoPkData = generateTableRowsNoPk(String.format("%s_NoPkTable", testName));
     spannerResourceManager.write(expectedData);
+    spannerResourceManager.write(expectedNoPkData);
     PipelineLauncher.LaunchConfig.Builder options =
         paramsAdder.apply(
             PipelineLauncher.LaunchConfig.builder(testName, specPath)
@@ -261,24 +276,31 @@ public class ExportPipelineIT extends SpannerTemplateITBase {
         gcsClient.listArtifacts(
             "output/",
             Pattern.compile(String.format(".*/%s_%s.*\\.avro.*", testName, "Sequence2")));
+    List<Artifact> noPkArtifacts =
+        gcsClient.listArtifacts(
+            "output/", Pattern.compile(String.format(".*/%s_%s.*\\.avro.*", testName, "NoPkTable")));
     assertThat(singersArtifacts).isNotEmpty();
     assertThat(emptyArtifacts).isNotEmpty();
     assertThat(modelStructArtifacts).isNotEmpty();
     assertThat(identityArtifacts).isNotEmpty();
     assertThat(sequenceArtifacts).isNotEmpty();
     assertThat(sequenceNoKindArtifacts).isNotEmpty();
+    assertThat(noPkArtifacts).isNotEmpty();
 
     List<GenericRecord> singersRecords = extractArtifacts(singersArtifacts, SINGERS_SCHEMA);
     List<GenericRecord> emptyRecords = extractArtifacts(emptyArtifacts, EMPTY_SCHEMA);
     List<GenericRecord> modelStructRecords =
         extractArtifacts(modelStructArtifacts, MODEL_STRUCT_SCHEMA);
     List<GenericRecord> identityRecords = extractArtifacts(identityArtifacts, IDENTITY_SCHEMA);
+    List<GenericRecord> noPkRecords = extractArtifacts(noPkArtifacts, NO_PK_SCHEMA);
 
     assertThatGenericRecords(singersRecords)
         .hasRecordsUnorderedCaseInsensitiveColumns(mutationsToRecords(expectedData));
     assertThatGenericRecords(emptyRecords).hasRows(0);
     assertThatGenericRecords(modelStructRecords).hasRows(0);
     assertThatGenericRecords(identityRecords).hasRows(0);
+    assertThatGenericRecords(noPkRecords)
+        .hasRecordsUnorderedCaseInsensitiveColumns(mutationsToRecords(expectedNoPkData));
   }
 
   @Test
@@ -316,7 +338,9 @@ public class ExportPipelineIT extends SpannerTemplateITBase {
     spannerResourceManager.executeDdlStatements(ddls);
 
     List<Mutation> expectedData = generateTableRows(String.format("%s_Singers", tableNamePrefix));
+    List<Mutation> expectedNoPkData = generateTableRowsNoPk(String.format("%s_NoPkTable", tableNamePrefix));
     spannerResourceManager.write(expectedData);
+    spannerResourceManager.write(expectedNoPkData);
     PipelineLauncher.LaunchConfig.Builder options =
         paramsAdder.apply(
             PipelineLauncher.LaunchConfig.builder(testName, specPath)
@@ -357,21 +381,28 @@ public class ExportPipelineIT extends SpannerTemplateITBase {
         gcsClient.listArtifacts(
             "output/",
             Pattern.compile(String.format(".*/%s_%s.*\\.avro.*", tableNamePrefix, "Sequence2")));
+    List<Artifact> noPkArtifacts =
+        gcsClient.listArtifacts(
+            "output/",
+            Pattern.compile(String.format(".*/%s_%s.*\\.avro.*", tableNamePrefix, "NoPkTable")));
     assertThat(singersArtifacts).isNotEmpty();
     assertThat(emptyArtifacts).isNotEmpty();
     assertThat(identityArtifacts).isNotEmpty();
     assertThat(sequenceArtifacts).isNotEmpty();
     assertThat(sequenceNoKindArtifacts).isNotEmpty();
+    assertThat(noPkArtifacts).isNotEmpty();
 
     List<GenericRecord> singersRecords = extractArtifacts(singersArtifacts, SINGERS_SCHEMA);
     List<GenericRecord> emptyRecords = extractArtifacts(emptyArtifacts, EMPTY_SCHEMA);
+    List<GenericRecord> identityRecords = extractArtifacts(identityArtifacts, IDENTITY_SCHEMA);
+    List<GenericRecord> noPkRecords = extractArtifacts(noPkArtifacts, NO_PK_SCHEMA);
 
     assertThatGenericRecords(singersRecords)
         .hasRecordsUnorderedCaseInsensitiveColumns(mutationsToRecords(expectedData));
     assertThatGenericRecords(emptyRecords).hasRows(0);
-
-    List<GenericRecord> identityRecords = extractArtifacts(identityArtifacts, IDENTITY_SCHEMA);
     assertThatGenericRecords(identityRecords).hasRows(0);
+    assertThatGenericRecords(noPkRecords)
+        .hasRecordsUnorderedCaseInsensitiveColumns(mutationsToRecords(expectedNoPkData));
   }
 
   // TODO(b/395532087): Consolidate this with other tests after UUID launch.
@@ -489,6 +520,19 @@ public class ExportPipelineIT extends SpannerTemplateITBase {
 
     return mutations;
   }
+
+  private static List<Mutation> generateTableRowsNoPk(String tableId) {
+    List<Mutation> mutations = new ArrayList<>();
+    for (int i = 0; i < MESSAGES_COUNT; i++) {
+      Mutation.WriteBuilder mutation = Mutation.newInsertBuilder(tableId);
+      mutation.set("rowid").to(i);
+      mutation.set("Name").to(RandomStringUtils.randomAlphanumeric(1, 20));
+      mutations.add(mutation.build());
+    }
+
+    return mutations;
+  }
+
 
   private static List<Mutation> generateTableRowsUUID(String tableId) {
     List<Mutation> mutations = new ArrayList<>();

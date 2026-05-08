@@ -125,6 +125,11 @@ public class CopyDbTest {
               .interleaveInParent("Users")
               .onDeleteCascade()
             .endTable()
+            .createTable("NoPkTable")
+              .column("rowid").int64().notNull().isIdentityColumn(true).sequenceKind("bit_reversed_positive").isHidden(true).endColumn()
+              .column("name").string().max().endColumn()
+              .primaryKey().asc("rowid").end()
+            .endTable()
             .build();
     // spotless:on
     createAndPopulate(ddl, 100);
@@ -230,6 +235,21 @@ public class CopyDbTest {
             .end()
             .interleaveInParent("Users")
             .onDeleteCascade()
+            .endTable()
+            .createTable("NoPkTable")
+            .column("rowid")
+            .pgInt8()
+            .notNull()
+            .isIdentityColumn(true)
+            .sequenceKind("bit_reversed_positive")
+            .isHidden(true)
+            .endColumn()
+            .column("name")
+            .pgText()
+            .endColumn()
+            .primaryKey()
+            .asc("rowid")
+            .end()
             .endTable()
             .build();
     // spotless:on
